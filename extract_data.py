@@ -1,219 +1,59 @@
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+#!/usr/bin/env python3
+"""
+Data extraction script for PhoneSafe AU
+Reads real enforcement data and generates JavaScript data files
+"""
 
-/**
- * Enforcement Bias Chart: Detection Method Distribution by Age Group (100% Stacked)
- * Shows whether younger age groups are disproportionately caught by police vs cameras
- */
-export function renderEnforcementBiasBar(container, data, options = {}) {
-    const year = options.year || 2024;
-    const actionType = options.actionType || "fines";
-    const selectedAgeGroups = options.ageGroups; // optional array of age groups
+import pandas as pd
+import json
+import os
+import sys
 
-    const actionFieldMap = {
-        fines: "FINES",
-        arrests: "ARRESTS",
-        charges: "CHARGES"
-    };
+# Change to the data directory
+os.chdir(r'C:\Users\Hoai\OneDrive\Documents\B-CS\2026_Spring\COS30045\phonesafe-au\Mobile_Phone_Offences_Project\Project')
 
-    const actionLabelMap = {
-        fines: "Fines",
-        arrests: "Arrests",
-        charges: "Charges"
-    };
-
-    const actionField = actionFieldMap[actionType] || actionFieldMap.fines;
-    const actionLabel = actionLabelMap[actionType] || actionLabelMap.fines;
-
-    // =========================
-    // CLEAR
-    // =========================
-    d3.select(container).selectAll("*").remove();
-
-    const margin = { top: 40, right: 80, bottom: 50, left: 60 };
-    const width = 650 - margin.left - margin.right;
-    const height = 450 - margin.top - margin.bottom;
-
-    const svg = d3.select(container)
-        .append("svg")
-        .attr("width", width + margin.left + margin.right)
-        .attr("height", height + margin.top + margin.bottom)
-        .append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-    // =========================
-    // FILTER DATA
-    // =========================
-    let filtered = data.filter(d => d.YEAR === year);
-    if (selectedAgeGroups && selectedAgeGroups.length > 0) {
-        filtered = filtered.filter(d => selectedAgeGroups.includes(d.AGE_GROUP));
-    }
-
-    // Normalize detection method names
-    filtered.forEach(d => {
-        if (d.DETECTION_METHOD === "Police issued") d.DETECTION_METHOD = "Police Patrols";
-    });
-
-    const detectionMethods = ["Camera", "Police Patrols"];
-    const ageOrder = ["0-16", "17-25", "26-39", "40-64", "65 and over"];
-
-    // Prepare data: sum selected enforcement action by age group and detection method
-    const stackData = Array.from(
-        d3.rollup(
-            filtered,
-            v => d3.sum(v, d => d[actionField]),
-            d => d.AGE_GROUP,
-            d => d.DETECTION_METHOD
-        ),
-        ([ageGroup, methodMap]) => {
-            const obj = { ageGroup };
-            detectionMethods.forEach(method => {
-                obj[method] = methodMap.get(method) || 0;
-            });
-            return obj;
-        }
-    ).sort((a, b) => ageOrder.indexOf(a.ageGroup) - ageOrder.indexOf(b.ageGroup));
-
-    // =========================
-    // STACK (100% normalization)
-    // =========================
-    const stack = d3.stack()
-        .keys(detectionMethods);
-
-    const series = stack(stackData);
-
-    // Normalize each bar to 100%
-    series.forEach(s => {
-        s.forEach(d => {
-            const total = d.data["Camera"] + d.data["Police Patrols"] || 1;
-            d[0] = (d[0] / total) * 100;
-            d[1] = (d[1] / total) * 100;
-        });
-    });
-
-    // =========================
-    // SCALES
-    // =========================
-    const x = d3.scaleBand()
-        .domain(stackData.map(d => d.ageGroup))
-        .range([0, width])
-        .padding(0.3);
-
-    const y = d3.scaleLinear()
-        .domain([0, 100])
-        .range([height, 0]);
-
-    const root = getComputedStyle(document.documentElement);
-
-    const color = d3.scaleOrdinal()
-        .domain(detectionMethods)
-        .range([
-            root.getPropertyValue('--accent').trim(),  // Camera (blue)
-            root.getPropertyValue('--sub').trim()       // Police Patrols (muted)
-        ]);
-
-    // =========================
-    // AXES
-    // =========================
-    svg.append("g")
-        .attr("transform", `translate(0, ${height})`)
-        .call(d3.axisBottom(x));
-
-    svg.append("g")
-        .call(d3.axisLeft(y).tickFormat(d => d + "%"));
-
-    // =========================
-    // TOOLTIP
-    // =========================
-    d3.select("#enforcement-bias-tooltip").remove();
-    const tooltip = d3.select("body")
-        .append("div")
-        .attr("id", "enforcement-bias-tooltip")
-        .style("position", "absolute")
-        .style("background", "var(--panel)")
-        .style("padding", "6px")
-        .style("border", "1px solid var(--border)")
-        .style("border-radius", "4px")
-        .style("pointer-events", "none")
-        .style("color", "var(--text)")
-        .style("opacity", 0);
-
-    // =========================
-    // BARS (100% STACKED)
-    // =========================
-    svg.selectAll("g.layer")
-        .data(series)
-        .enter()
-        .append("g")
-        .attr("class", "layer")
-        .attr("fill", d => color(d.key))
-        .selectAll("rect")
-        .data(d => d)
-        .enter()
-        .append("rect")
-        .attr("x", d => x(d.data.ageGroup))
-        .attr("y", d => y(d[1]))
-        .attr("height", d => y(d[0]) - y(d[1]))
-        .attr("width", x.bandwidth())
-        .on("mouseover", (event, d) => {
-            const key = event.currentTarget.parentNode.__data__.key;
-            const percentage = (d[1] - d[0]).toFixed(1);
-            tooltip.style("opacity", 1)
-                .html(`<strong>${d.data.ageGroup}</strong><br>${key} ${actionLabel}: ${percentage}%`);
-        })
-        .on("mousemove", event => {
-            tooltip.style("left", (event.pageX + 10) + "px")
-                .style("top", (event.pageY - 20) + "px");
-        })
-        .on("mouseout", () => tooltip.style("opacity", 0));
-
-    // =========================
-    // TITLE
-    // =========================
-    svg.append("text")
-        .attr("x", width / 2)
-        .attr("y", -10)
-        .attr("text-anchor", "middle")
-        .style("font-weight", "bold")
-        .style("fill", "var(--text)")
-        .text(`Detection Method Distribution by Age Group (${actionLabel}, ${year})`);
-
-    // =========================
-    // LABELS
-    // =========================
-    svg.append("text")
-        .attr("x", width / 2)
-        .attr("y", height + 40)
-        .attr("text-anchor", "middle")
-        .style("font-size", "12px")
-        .style("fill", "var(--text)")
-        .text("Age Group");
-
-    svg.append("text")
-        .attr("x", -height / 2)
-        .attr("y", -50)
-        .attr("transform", "rotate(-90)")
-        .attr("text-anchor", "middle")
-        .style("font-size", "12px")
-        .style("fill", "var(--text)")
-        .text("Proportion (%)");
-
-    // =========================
-    // LEGEND
-    // =========================
-    const legend = svg.append("g")
-        .attr("transform", `translate(${width - 20}, 0)`);
-    detectionMethods.forEach((method, i) => {
-        const g = legend.append("g")
-            .attr("transform", `translate(0, ${i * 20})`);
-        g.append("rect")
-            .attr("width", 15)
-            .attr("height", 15)
-            .attr("fill", color(method));
-        g.append("text")
-            .attr("x", 20)
-            .attr("y", 12)
-            .style("font-size", "12px")
-            .style("fill", "var(--text)")
-            .text(method);
-    });
-}
+try:
+    # Read the Excel files
+    print("Reading enforcement data...")
+    df_merged = pd.read_excel('exports/mobile_phone_enforcement_merged.xlsx')
+    df_age = pd.read_excel('exports/mobile_phone_enforcement_age_all_states.xlsx')
+    
+    print("\nMerged data shape:", df_merged.shape)
+    print("Age data shape:", df_age.shape)
+    print("\nMerged data columns:", df_merged.columns.tolist())
+    print("\nAge data columns:", df_age.columns.tolist())
+    
+    print("\n" + "="*80)
+    print("MERGED DATA - First 10 rows:")
+    print("="*80)
+    print(df_merged.head(10).to_string())
+    
+    print("\n" + "="*80)
+    print("AGE DATA - First 10 rows:")
+    print("="*80)
+    print(df_age.head(10).to_string())
+    
+    # Extract key statistics
+    print("\n" + "="*80)
+    print("KEY STATISTICS:")
+    print("="*80)
+    
+    if 'YEAR' in df_merged.columns:
+        yearly = df_merged.groupby('YEAR').size().reset_index(name='count')
+        print("\nYearly distribution:")
+        print(yearly.to_string())
+    
+    if 'AGE_GROUP' in df_merged.columns:
+        age_dist = df_merged.groupby('AGE_GROUP').size().reset_index(name='count')
+        print("\nAge group distribution:")
+        print(age_dist.to_string())
+    
+    if 'JURISDICTION' in df_merged.columns:
+        juris_dist = df_merged.groupby('JURISDICTION').size().reset_index(name='count')
+        print("\nJurisdiction distribution:")
+        print(juris_dist.to_string())
+    
+except Exception as e:
+    print(f"Error: {e}")
+    import traceback
+    traceback.print_exc()
